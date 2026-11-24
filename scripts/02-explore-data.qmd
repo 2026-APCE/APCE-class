@@ -1,0 +1,20 @@
+# read data from Google sheets database
+First read the setup file for functions as reading your google sheet database. 
+```{r}
+# include the setup file
+source(here::here("scripts","01-setup.R"))
+```
+
+# authenticate & read the Google sheets database
+
+```{r}
+gsheets_auth()  # you can put: email="c.both@rug.nl"
+
+
+data<-read_gsdb("https://docs.google.com/spreadsheets/d/10ftwcnis0hG8lLTPbWfEgOxTiErLVfSSDrt0hTB8ywE")
+
+# This is needed for comments
+
+str(data)
+data$fact_biometry
+```

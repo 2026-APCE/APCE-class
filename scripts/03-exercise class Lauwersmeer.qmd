@@ -1,0 +1,261 @@
+---
+title: "03- excercice class Lauwersmeer"
+subtitle: "practicing from general linear models to general linear mixed models"
+author: "Marion Nicolaus"
+date: "2026-11-16"
+editor_options:
+  chunk_output_type: console
+execute:
+  output: false
+  warning: false
+  message: false
+---
+# First read the setup file for functions as reading your google sheet database. 
+```{r}
+# include the setup file 
+source(here::here("scripts","01-setup.R"))
+```
+
+# authenticate & read the Google sheets database
+This now reads the Lauwersmeer data file from great tits
+
+```{r}
+gsheets_auth()  # you can put: email="c.both@rug.nl"
+
+
+data<-read_gsdb("https://docs.google.com/spreadsheets/d/10ftwcnis0hG8lLTPbWfEgOxTiErLVfSSDrt0hTB8ywE")
+
+# This is needed for comments
+
+str(data)
+str(data$fact_biometry)
+```
+
+# select the data needed for the exercise
+```{r}
+# Convert nestbox_id to character
+data$dim_nestboxes <- data$dim_nestboxes |>
+  dplyr::mutate(nestbox_id = as.character(nestbox_id))
+
+data$fact_biometry <- data$fact_biometry |>
+  dplyr::mutate(nestbox_id = as.character(nestbox_id))
+
+# Create data_F (female data)
+data_F <- data$fact_biometry |>
+  dplyr::left_join(data$dim_individuals, by = "individual_id") |>
+  dplyr::filter(sex == 1) |> # select for females only
+  dplyr::left_join(data$dim_years, by = "year") |>
+  dplyr::left_join(data$dim_nestboxes, by = "nestbox_id") |>
+  dplyr::select(-c(layingdate, wing, tarsus, weight,
+                   fledglingnumber, recruit, survival, x_gps, y_gps)) # remove unecessary columns
+
+str(data$fact_biometry)
+str(data$dim_nestboxes)
+```
+
+# check for outliers
+```{r}
+#for example: 
+hist(data_F$clutchsize)
+```
+
+# step 1: linear regression
+ ```{r}
+ m1<-lm(clutchsize~annual_density, data=data_F)
+summary(m1)
+```
+
+# visualisation regression
+```{r}
+# Visualizing regression:
+ggplot(data_F, aes(x=annual_density, y=clutchsize)) +
+  geom_point(shape=1) +    # Use hollow circles
+  geom_smooth(method=lm,   # Add linear regression line
+              se=FALSE)+
+  theme_classic(base_size = 15)
+```
+# check residuals
+```{r}
+# check residuals
+plot(m1)
+hist(residuals(m1))
+```
+
+# step 2. linear regression - density as factor
+```{r}
+data_F <- data_F |>
+  dplyr::mutate(density_cat = as.factor(annual_density)) # create a new density variable that is treated as a factor
+
+
+m2<-lm(clutchsize~density_cat, data=data_F)
+summary(m2)
+```
+
+# step 3. linear regression - taking annual means
+```{r}
+#calculating mean clutch size + sd + se per density
+data_means <- data_F |>
+  dplyr::group_by(annual_density) |>
+  dplyr::summarize(
+    CS_avg = mean(clutchsize, na.rm = TRUE),
+    CS_sd = sd(clutchsize, na.rm = TRUE),
+    n_obs = sum(!is.na(clutchsize)),
+    CS_se = CS_sd / sqrt(n_obs),
+    .groups = "drop"
+  )
+
+# using mean clutch size in the lm
+
+m3<-lm(CS_avg~annual_density, data=data_means)
+summary(m3)
+
+# visualisation
+ggplot(data_means, aes(x=annual_density, y=CS_avg)) + 
+  geom_errorbar(aes(ymin=CS_avg-CS_se, ymax=CS_avg+CS_se), width=.1) +
+  geom_point()+
+  geom_smooth(method=lm,   # Add linear regression line
+              se=FALSE)+
+  theme_classic(base_size = 15)
+```
+
+# step 4 mixed models
+```{r}
+
+m4 <- glmmTMB::glmmTMB(
+  clutchsize ~ +(1|individual_id), # individual_id is fitted as a random effect to account for repeated measurements within females
+  family = gaussian(link = "identity"),
+  data = data_F
+)
+m4
+summary(m4)
+confint(m4)
+
+```
+
+# calculating repeatability of clutch size based on m4
+
+```{r}
+# Extract variance components
+var_components <- as.data.frame(glmmTMB::VarCorr(m4)$cond)
+print(var_components)
+names(var_components)
+
+# Random effect variance
+var_individual <- as.numeric(glmmTMB::VarCorr(m4)$cond$individual_id[1, 1])
+
+# Residual variance
+var_residual <- sigma(m4)^2
+
+# Calculate repeatability
+R_m4 <- var_individual / (var_individual + var_residual)
+R_m4
+```
+
+# adding a fixed effect
+```{r}
+m5 <- glmmTMB::glmmTMB(
+  clutchsize ~ annual_density +(1|individual_id), # individual_id is fitted as a random effect to account for repeated measurements within females
+  family = gaussian(link = "identity"),
+  data = data_F
+)
+m5
+summary(m5)
+confint(m5)
+
+#calculating repeatability of clutch size based on m5
+
+# Extract variance components
+var_components <- as.data.frame(glmmTMB::VarCorr(m5)$cond)
+print(var_components)
+names(var_components)
+
+# Random effect variance
+var_individual <- as.numeric(glmmTMB::VarCorr(m5)$cond$individual_id[1, 1])
+
+# Residual variance
+var_residual <- sigma(m5)^2
+
+# Calculate repeatability
+R_m5 <- var_individual / (var_individual + var_residual)
+R_m5
+```
+# adding a random effect
+```{r}
+m6 <- glmmTMB::glmmTMB(
+  clutchsize ~ annual_density +(1|individual_id) + (1|plot_id), # individual_id is fitted as a random effect to account for repeated measurements within females, now we also add study areas
+  family = gaussian(link = "identity"),
+  data = data_F
+)
+m6
+summary(m6)
+confint(m6)
+
+#calculating repeatability of clutch size based on m5
+
+# Extract variance components
+var_components <- as.data.frame(glmmTMB::VarCorr(m6)$cond)
+print(var_components)
+names(var_components)
+
+# Random effect variance
+var_individual <- as.numeric(glmmTMB::VarCorr(m6)$cond$individual_id[1, 1])
+
+# Residual variance
+var_residual <- sigma(m6)^2
+
+# Calculate repeatability
+R_m6 <- var_individual / (var_individual + var_residual)
+R_m6
+```
+
+# step 5 within subject centering
+
+```{r}
+
+# Center annual density per individual
+data_F <- data_F |>
+  dplyr::group_by(individual_id) |>
+  dplyr::mutate(
+    avgAnDens = mean(annual_density, na.rm = TRUE),
+    annual_density_cen = annual_density - avgAnDens
+  ) |>
+  dplyr::ungroup()
+
+
+# Model with annual_density_cen (within-individual effect) and avgAnDens (between-individual effect)
+
+m7 <- glmmTMB::glmmTMB(
+  clutchsize ~ annual_density_cen + avgAnDens +
+    (1 | individual_id) + (1 | plot_id),
+  family = gaussian(link = "identity"),
+  data = data_F
+)
+
+summary(m7)
+confint(m7)
+```
+# visualisation
+
+```{r}
+library(viridis)
+
+graph_m7 <- ggplot(data_F, aes(x = annual_density, y = clutchsize)) +
+  geom_line(
+    aes(group = individual_id, color = factor(individual_id)),
+    alpha = 0.7, linewidth = 0.8
+  ) +
+  geom_point(
+    aes(color = factor(individual_id)),
+    alpha = 0.8, size = 1
+  ) +
+  geom_smooth(
+    method = "lm", se = FALSE,
+    color = "black", linewidth = 0.7
+  ) +
+  scale_color_viridis_d(option = "turbo") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+graph_m7
+
+  ```
