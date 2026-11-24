@@ -190,7 +190,7 @@ m6
 summary(m6)
 confint(m6)
 
-#calculating repeatability of clutch size based on m5
+#calculating repeatability of clutch size based on m6
 
 # Extract variance components
 var_components <- as.data.frame(glmmTMB::VarCorr(m6)$cond)
@@ -200,11 +200,13 @@ names(var_components)
 # Random effect variance
 var_individual <- as.numeric(glmmTMB::VarCorr(m6)$cond$individual_id[1, 1])
 
+var_plot <- as.numeric(glmmTMB::VarCorr(m6)$cond$plot_id[1,1])
+
 # Residual variance
 var_residual <- sigma(m6)^2
 
 # Calculate repeatability
-R_m6 <- var_individual / (var_individual + var_residual)
+R_m6 <- var_individual / (var_individual + var_plot + var_residual)
 R_m6
 ```
 
